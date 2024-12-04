@@ -42,26 +42,30 @@ def reorganize_subfolders(fpath):
         for file in files:
             incorrect = False
 
-            #ignore files that end any of the ignored file types
+            # ignore files that end any of the ignored file types
             for a in IGNORE_LIST:
                 if file.endswith(a):
                     incorrect = True
 
             nName = file.split("_")
+            #format can either be with or without date
             nName = nName[0:4]
-            #if any part of the string does not contain any of the correct information
+            nName2 = nName[1:4]
+            # if any part of the string does not contain any of the correct information
             for a in nName:
                 if a == "" or a == " ":
                     incorrect = True
 
             if incorrect == False:
                 nName = '_'.join(nName)
-                #see if folder exists at this level or the file is already in correct directory
-                if nName not in root:
-                    dirPath = os.path.join(root, nName)
+                nName2 = '_'.join(nName2)
+                # see if folder exists at this level or the file is already in correct directory
+                #check if there is old subfolders, but onyl create new ones if there isnt one
+                if nName2 not in root and nName not in root:
+                    dirPath = os.path.join(root, nName2)
                     if not os.path.exists(dirPath):
                         os.makedirs(dirPath)
-                    os.rename(os.path.join(root, file), os.path.join(root, nName, file))
+                    os.rename(os.path.join(root, file), os.path.join(root, nName2, file))
 
 
 

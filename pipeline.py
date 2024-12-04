@@ -1,7 +1,6 @@
-import time as Time
-from datetime import datetime, time
-import os
 import deeplabcut
+import os
+import pandas as pd
 
 class Analyzer:
     def __init__(self, root, started_bar, progress_bar):
@@ -12,8 +11,9 @@ class Analyzer:
         self.running = False
         self.config = None
         self.fpath = None
+        self.referenceList = None
         self.main()
-        self.QUEUE = []
+        self.QUEUE = [] #list of videos to process with format [Name, Path] for each video
         self.VIDEO_LIST = []
         self.CSV_LIST = []
 
@@ -24,9 +24,9 @@ class Analyzer:
     # Pauses the analysis during working hours (9am-5pm). For use on machines which are also used as workstations. Will resume analysis after the pause.
     PAUSE_WORK_HOURS = False
     REANALYZE = False
-    REORGANIZE_SUBFOLDERS = True
+    REORGANIZE_SUBFOLDERS = False
     # list of filetypes to ignore when reorganization is True
-    IGNORE_LIST = [".plx", ".fig", ".jpg"]
+    IGNORE_LIST = [".plx", ".fig", ".jpg", ".xlsx"]
 
     if LISTENER_ACTIVE == True:
         REANALYZE = False
@@ -40,10 +40,27 @@ class Analyzer:
             else:
                 print("Error: No DLC Config file selected, cannot proceed with analysis")
 
-
     def stop(self):
         self.running = False
         started_bar.stop()
+
+    def process_reference(self):
+        try:
+            currdir = os.getcwd()
+            tempdir = filedialog.askopenfilename(parent=self.root, initialdir=currdir,
+                                                 title='Please select a .csv files of the names of the videos to analyze', filetypes=[('Excel','*.csv')])
+            if len(tempdir) > 0:
+                print("You chose: %s" % tempdir)
+            else:
+                raise Exception("Error: No file was selected")
+        except:
+            tempdir = self.get_file()
+
+        df = pd.read_csv(tempdir, header=None)
+        tmp = df.to_numpy()
+        if len(tmp) > 0:
+            self.referenceList = tmp
+
 
     def add_videos(self):
         currdir = os.getcwd()
@@ -63,8 +80,6 @@ class Analyzer:
             progress = (self.completed / len(self.QUEUE)) * 100
             progress = round(progress)
             self.progress_bar.step(progress)
-
-
 
     def get_filepath(self):
         try:
@@ -93,26 +108,35 @@ class Analyzer:
         self.config = tempdir
 
     def subprocess_video(self):
-        import deeplabcut
-        while True:
-            if self.running is True:
-                if len(self.QUEUE) != 0:
-                    print("Analyzing ", self.QUEUE[0][0])
-                    video = self.QUEUE.pop(0)
-                    deeplabcut.analyze_videos(config=self.config, videos=video[1], save_as_csv=True, videotype=self.VIDEO_TYPE)
-                    deeplabcut.plot_trajectories(self.config, video[1])
-                    deeplabcut.create_labeled_video(config=self.config, videos=video[1], videotype=self.VIDEO_TYPE, draw_skeleton=True)
+        if self.running is True:
+            if len(self.QUEUE) != 0:
+                print("Analyzing ", self.QUEUE[0][0])
+                video = self.QUEUE.pop(0)
+                deeplabcut.analyze_videos(config=self.config, videos=video[1], save_as_csv=True, videotype=self.VIDEO_TYPE)
+                deeplabcut.plot_trajectories(self.config, video[1])
+                deeplabcut.create_labeled_video(config=self.config, videos=video[1], videotype=self.VIDEO_TYPE, draw_skeleton=True)
 
-                    self.completed += 1
-                    progress = (self.completed / len(self.QUEUE)) * 100
-                    progress = round(progress)
-                    self.progress_bar.step(progress)
-                    print(len(self.QUEUE), " More videos to analyze...")
-                else:
-                    print("all videos analyzed, select more to continue analysis...")
-                    break
-            else:
-                break
+                self.completed += 1
+                progress = (self.completed / len(self.QUEUE)) * 100
+                progress = round(progress)
+                self.progress_bar.step(progress)
+
+    #used to filter the QUEUE of unprocessed recordings against a supplied reference list
+    def filter(self):
+        tmpQUEUE = []
+        if self.referenceList is not None and len(self.referenceList) > 0:
+            for a in range(len(self.QUEUE)):
+                inList = False
+                for b in range(len(self.referenceList)):
+                    if self.referenceList[b][0] in self.QUEUE[a][0]:
+                        inList = True
+
+                if inList == True:
+                    tmpQUEUE.append(self.QUEUE[a])
+
+            self.QUEUE = tmpQUEUE
+        else:
+            print("Error: No reference list given or is of length one, cannot filter videos")
 
     def find_videos(self):
         # look for new videos to add to list
@@ -128,7 +152,7 @@ class Analyzer:
                 if (name.endswith(".csv")) and (name not in self.CSV_LIST):
                     self.CSV_LIST.append(name)
 
-        # cross refrence new videos to our complete list of CSV files. If no corresponding CSV file is found, add to queue for analysis
+        # cross reference new videos to our complete list of CSV files. If no corresponding CSV file is found, add to queue for analysis
         for a in range(len(new)):
             flg = False
             if self.REANALYZE == False:
@@ -138,6 +162,14 @@ class Analyzer:
                         break
             if flg == False and new not in self.QUEUE:
                 self.QUEUE.append(new[a])
+
+        print("Length of QUEUE is: ", len(self.QUEUE))
+
+        if self.referenceList is not None:
+            print("Using supplied reference List to filter Queue...")
+            self.filter()
+
+            print(self.QUEUE)
 
     def reorganize_subfolders(self, fpath):
         for root, dirs, files in os.walk(fpath):
@@ -150,7 +182,9 @@ class Analyzer:
                         incorrect = True
 
                 nName = file.split("_")
+                #format can either be with or without date
                 nName = nName[0:4]
+                nName2 = nName[1:4]
                 # if any part of the string does not contain any of the correct information
                 for a in nName:
                     if a == "" or a == " ":
@@ -158,12 +192,13 @@ class Analyzer:
 
                 if incorrect == False:
                     nName = '_'.join(nName)
+                    nName2 = '_'.join(nName2)
                     # see if folder exists at this level or the file is already in correct directory
-                    if nName not in root:
-                        dirPath = os.path.join(root, nName)
+                    if nName not in root and nName2 not in root:
+                        dirPath = os.path.join(root, nName2)
                         if not os.path.exists(dirPath):
                             os.makedirs(dirPath)
-                        os.rename(os.path.join(root, file), os.path.join(root, nName, file))
+                        os.rename(os.path.join(root, file), os.path.join(root, nName2, file))
 
     def main(self):
         if self.running:
@@ -193,7 +228,13 @@ class Analyzer:
                         self.progress_bar.step(progress)
                         print("found ", new - old, "more videos to analyze...")
 
-                self.subprocess_video()
+                while len(self.QUEUE) != 0:
+                    self.subprocess_video()
+                    if len(self.QUEUE) != 0:
+                        print(len(self.QUEUE), " More videos to analyze...")
+                    else:
+                        print("all videos analyzed, select more to continue analysis...")
+                        self.stop()
             else:
                 print("No videos to analyze!")
                 self.stop()
@@ -222,4 +263,5 @@ if __name__ == '__main__':
     config_button = tk.Button(root, text="Select DLC Config File", command=app.get_file).pack()
     dir_button = tk.Button(root, text="Select Directory of videos to analyze", command=app.get_filepath).pack()
     add_button = tk.Button(root, text="Add more videos to queue", command=app.add_videos).pack()
+    list_button = tk.Button(root, text="Use reference list to queue list of videos", command=app.process_reference).pack()
     root.mainloop()
