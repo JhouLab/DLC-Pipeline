@@ -45,6 +45,7 @@ class Analyzer:
         started_bar.stop()
 
     def process_reference(self):
+        print("Notice: format of dates must be YYYY-MM-DD_Time")
         try:
             currdir = os.getcwd()
             tempdir = filedialog.askopenfilename(parent=self.root, initialdir=currdir,
@@ -114,7 +115,7 @@ class Analyzer:
                 video = self.QUEUE.pop(0)
                 deeplabcut.analyze_videos(config=self.config, videos=video[1], save_as_csv=True, videotype=self.VIDEO_TYPE)
                 deeplabcut.plot_trajectories(self.config, video[1])
-                deeplabcut.create_labeled_video(config=self.config, videos=video[1], videotype=self.VIDEO_TYPE, draw_skeleton=True)
+                #deeplabcut.create_labeled_video(config=self.config, videos=video[1], videotype=self.VIDEO_TYPE, draw_skeleton=True)
 
                 self.completed += 1
                 progress = (self.completed / len(self.QUEUE)) * 100
@@ -128,7 +129,20 @@ class Analyzer:
             for a in range(len(self.QUEUE)):
                 inList = False
                 for b in range(len(self.referenceList)):
-                    if self.referenceList[b][0] in self.QUEUE[a][0]:
+                    #video recording might be +/- i minute off from plx files, so check these times too when filtering by date-time string
+                    string = self.referenceList[b][0]
+                    str2 = string.split('_')
+                    str3 = string.split('_')
+                    time = str2[len(str2) - 1]
+                    time = int(time)
+                    time = time + 1
+                    time2 = time - 2
+                    str2[len(str2) - 1] = str(time)
+                    str3[len(str3) - 1] = str(time2)
+                    str2 = '_'.join(str2)
+                    str3 = "_".join(str3)
+
+                    if (string in self.QUEUE[a][0]) or (str2 in self.QUEUE[a][0]) or (str3 in self.QUEUE[a][0]):
                         inList = True
 
                 if inList == True:
@@ -263,5 +277,5 @@ if __name__ == '__main__':
     config_button = tk.Button(root, text="Select DLC Config File", command=app.get_file).pack()
     dir_button = tk.Button(root, text="Select Directory of videos to analyze", command=app.get_filepath).pack()
     add_button = tk.Button(root, text="Add more videos to queue", command=app.add_videos).pack()
-    list_button = tk.Button(root, text="Use reference list to queue list of videos", command=app.process_reference).pack()
+    list_button = tk.Button(root, text="Use list of dates to filter videos", command=app.process_reference).pack()
     root.mainloop()
